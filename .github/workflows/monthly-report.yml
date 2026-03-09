@@ -62,10 +62,13 @@ jobs:
 
       - name: Resolve period
         id: period
+        env:
+          INPUT_YEAR: ${{ inputs.year }}
+          INPUT_MONTH: ${{ inputs.month }}
         run: |
-          if [ "${{ inputs.year }}" -gt 0 ] && [ "${{ inputs.month }}" -gt 0 ]; then
-            echo "year=${{ inputs.year }}" >> "$GITHUB_OUTPUT"
-            echo "month=${{ inputs.month }}" >> "$GITHUB_OUTPUT"
+          if [ "$INPUT_YEAR" -gt 0 ] && [ "$INPUT_MONTH" -gt 0 ]; then
+            echo "year=$INPUT_YEAR" >> "$GITHUB_OUTPUT"
+            echo "month=$INPUT_MONTH" >> "$GITHUB_OUTPUT"
           else
             python3 -c "
           from datetime import datetime, timezone

@@ -76,8 +76,11 @@ class ShakedownCandidateBuilder:
         Convert repo identifier to a GitHub URL.
         PR-Bouncer stores repos as 'org/repo' format.
         """
-        if repo.startswith("http"):
+        if repo.startswith("https://github.com/"):
             return repo
+        if repo.startswith("http://github.com"):
+            return repo.replace("http://", "https://", 1)
+        
         return f"https://github.com/{repo}"
 
     def build(self) -> Dict[str, Any]:

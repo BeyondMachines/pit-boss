@@ -1,0 +1,75 @@
+{
+  "generated_by": "pit-boss",
+  "period": "",
+  "threshold": 7,
+  "total_candidates": 2,
+  "repos": [
+    {
+      "repo": "BeyondMachines/AutoCodingDemo",
+      "repo_url": "https://github.com/BeyondMachines/AutoCodingDemo",
+      "priority_score": 122,
+      "suggested_scan_mode": "deep",
+      "max_risk_score": 10,
+      "critical_issue_count": 16,
+      "total_prs_reviewed": 23,
+      "override_count": 4,
+      "reasons": [
+        "Critical risk score (10/10)",
+        "16 critical issues found",
+        "1 high-risk PRs were overridden",
+        "Recurring issues: generic-api-key, sidekiq-secret"
+      ],
+      "critical_issue_titles": [
+        "Hardcoded User Identity in Authentication Dependency",
+        "Glob Pattern Injection in Document Retrieval and Deletion",
+        "Broken Access Control (IDOR)",
+        "Missing Authentication Implementation",
+        "Insecure Direct Object Reference (IDOR) in File Downloads",
+        "Framework Incompatibility and Potential Auth Bypass",
+        "Internal Path Disclosure",
+        "Database Attribute Error",
+        "Hardcoded Sidekiq Secret",
+        "Hardcoded Generic API Key"
+      ],
+      "llm_urgency": "CRITICAL",
+      "llm_narrative": "This repository exhibits severe authentication and authorization flaws, including 'Missing Authentication Implementation' and 'Hardcoded User Identity,' which allow complete bypass of security controls. Furthermore, critical vulnerabilities like 'Glob Pattern Injection' and multiple 'Insecure Direct Object Reference (IDOR)' issues expose the system to unauthorized file access, deletion, and data manipulation.",
+      "llm_focus_areas": [
+        "Authentication bypasses",
+        "Authorization flaws (IDOR, Broken Access Control)",
+        "File system vulnerabilities (Glob Pattern Injection)",
+        "Information disclosure (Internal Path Disclosure)",
+        "Hardcoded secrets (API keys, Sidekiq secret)",
+        "Framework misconfigurations"
+      ],
+      "llm_risk_if_ignored": "Ignoring these issues could lead to complete compromise of the application, including unauthorized access to all user data, arbitrary file deletion, and potential remote code execution via file manipulation. Attackers could impersonate any user, access sensitive documents, and disrupt service availability, leading to severe data breaches and operational downtime."
+    },
+    {
+      "repo": "BeyondMachines/goya-core",
+      "repo_url": "https://github.com/BeyondMachines/goya-core",
+      "priority_score": 59,
+      "suggested_scan_mode": "deep",
+      "max_risk_score": 9,
+      "critical_issue_count": 5,
+      "total_prs_reviewed": 11,
+      "override_count": 1,
+      "reasons": [
+        "Critical risk score (9/10)",
+        "5 critical issues found"
+      ],
+      "critical_issue_titles": [
+        "Hardcoded Generic API Key",
+        "Insecure Storage of Security Scan Results",
+        "Missing Actor Validation for Issue Comment Trigger"
+      ],
+      "llm_urgency": "CRITICAL",
+      "llm_narrative": "This repository contains critical security flaws within its CI/CD workflows, specifically a 'Hardcoded Generic API Key' and 'Insecure Storage of Security Scan Results,' which expose sensitive credentials and vulnerability data. The 'Missing Actor Validation for Issue Comment Trigger' further exacerbates the risk by allowing any GitHub user to trigger workflows with AWS secrets, creating a significant supply chain attack vector.",
+      "llm_focus_areas": [
+        "Hardcoded credentials in CI/CD workflows",
+        "Insecure storage of sensitive data (security scan results)",
+        "CI/CD workflow security (actor validation, secret handling)",
+        "Supply chain security risks"
+      ],
+      "llm_risk_if_ignored": "Failure to scan and remediate these issues could lead to the compromise of AWS credentials, exposure of all past and future security scan results, and potential unauthorized execution of CI/CD workflows. This could enable attackers to inject malicious code, exfiltrate sensitive data, or disrupt the entire development and deployment pipeline, severely impacting the organization's security posture."
+    }
+  ]
+}

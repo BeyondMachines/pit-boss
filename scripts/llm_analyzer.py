@@ -133,18 +133,24 @@ class LLMAnalyzer:
     # ── Security helpers ─────────────────────────────────────────
 
     @staticmethod
-    def _sanitize(text: str, max_len: int = 200) -> str:
+    def _sanitize(text: str, max_len: int = 500) -> str:
         """Sanitize untrusted input before including in prompts."""
         if not isinstance(text, str):
             return str(text)[:max_len]
+        # Strip control chars and zero-width characters used to bypass keyword filters
         sanitized = text.replace("\r", " ").replace("\n", " ")
+        sanitized = ''.join(c for c in sanitized if c.isprintable() or c == ' ')
+        # Normalize unicode lookalikes to ASCII for keyword matching
+        check_text = sanitized.lower().replace('\u200b', '').replace('\u00a0', ' ')
         for pattern in [
             "ignore previous", "ignore above", "disregard",
             "you are now", "new instructions", "override",
             "system prompt", "forget everything",
+            "act as", "pretend to be", "do not analyze",
+            "skip analysis", "mark as safe", "no vulnerabilities",
         ]:
-            if pattern in sanitized.lower():
-                sanitized = "[REDACTED — untrusted content removed]"
+            if pattern in check_text:
+                sanitized = "[content removed by pit-boss]"
                 break
         return sanitized[:max_len]
 
@@ -188,10 +194,24 @@ class LLMAnalyzer:
                     response_mime_type="application/json",
                     response_schema=schema,
                     temperature=0.2,
-                    max_output_tokens=8192,
+                    max_output_tokens=16384,
                 ),
             )
-            return json.loads(response.text)
+            text = response.text
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Try to repair truncated JSON by closing open structures
+                repaired = text.rstrip()
+                # Count unclosed braces/brackets
+                opens = repaired.count('{') - repaired.count('}')
+                opens_arr = repaired.count('[') - repaired.count(']')
+                # If inside a string, close it
+                if repaired.count('"') % 2 == 1:
+                    repaired += '"'
+                repaired += ']' * opens_arr
+                repaired += '}' * opens
+                return json.loads(repaired)
         except Exception as e:
             print(f"  ⚠️ Gemini call failed: {e}")
             return None

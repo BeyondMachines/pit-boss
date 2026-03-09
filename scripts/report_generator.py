@@ -13,6 +13,17 @@ class ReportGenerator:
         self.month = month_label
         self.llm = llm_results or {}
 
+    @staticmethod
+    def _md_safe(text: str, max_len: int = 200) -> str:
+        """Escape Markdown control characters in untrusted strings."""
+        if not isinstance(text, str):
+            return str(text)[:max_len]
+        s = text.replace("\r", " ").replace("\n", " ")
+        s = s.replace("|", "\\|")
+        s = s.replace("<", "&lt;").replace(">", "&gt;")
+        s = s.replace("[", "\\[").replace("]", "\\]")
+        return s[:max_len]
+
     def generate(self) -> str:
         s = self.a["summary"]
         sections = [
@@ -94,7 +105,7 @@ class ReportGenerator:
 
         rows = ""
         for repo, data in sorted_repos:
-            top_issues = ", ".join(rule for rule, _ in data["top_issues"][:3]) or "—"
+            top_issues = ", ".join(self._md_safe(rule, 60) for rule, _ in data["top_issues"][:5]) or "—"
             rows += (
                 f"| `{repo}` | {data['total_prs']} | {data['avg_risk']}"
                 f" | {data['max_risk']} | {data['critical_count']}"
@@ -150,12 +161,12 @@ class ReportGenerator:
             decisions = p["accept_risks"] + p["false_positives"]
             cmd = decisions[0]["type"] if decisions else "?"
             author = decisions[0]["author"] if decisions else "?"
-            reasoning = decisions[0].get("reasoning", "")[:80] if decisions else ""
+            reasoning = self._md_safe(decisions[0].get("reasoning", ""), 80) if decisions else ""
             if not reasoning:
                 reasoning = "⚠️ *No reasoning provided*"
 
             criticals = "; ".join(
-                c.get("title", "?")[:50] for c in p["critical_issues"][:3]
+                self._md_safe(c.get("title", "?"), 50) for c in p["critical_issues"][:5]
             ) or "—"
 
             rows += (
@@ -180,7 +191,7 @@ class ReportGenerator:
         for p in items[:10]:
             decisions = p["accept_risks"] + p["false_positives"]
             cmd = decisions[0]["type"] if decisions else "?"
-            author = decisions[0]["author"] if decisions else "?"
+            author = self._md_safe(decisions[0]["author"], 50) if decisions else "?"
             rows += (
                 f"| `{p['repo']}` | #{p['pr_number']} | {p['risk_score']}"
                 f" | `/{cmd}` | @{author} |\n"
@@ -201,7 +212,7 @@ class ReportGenerator:
 
         rows = ""
         for author, count in authors[:10]:
-            rows += f"| @{author} | {count} |\n"
+            rows += f"| @{self._md_safe(author, 50)} | {count} |\n"
 
         return (
             f"### Override Frequency by Author\n\n"

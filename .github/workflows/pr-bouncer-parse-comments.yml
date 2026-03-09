@@ -14,7 +14,6 @@ jobs:
       upload_to_s3: true
       s3_bucket: "bm-pr-reviews"
     secrets:
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}

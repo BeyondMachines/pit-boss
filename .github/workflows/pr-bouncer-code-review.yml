@@ -12,9 +12,9 @@ jobs:
       risk_threshold: 7
       semgrep_rules: "p/security-audit,p/owasp-top-ten,p/javascript,p/typescript"
       upload_to_s3: true
-      s3_bucket: "pr-bouncer-code-reviews" # Parameter for the S3 bucket
+      s3_bucket: "bm-pr-reviews" # Parameter for the S3 bucket
     secrets:
-      GEMINI_API_KEY: ${{ secrets.PR_BOUNCER_GEMINI_API_KEY }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.PR_BOUNCER_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.PR_BOUNCER_AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.PR_BOUNCER_VATBOX_AWS_REGION }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}

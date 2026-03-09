@@ -1,0 +1,116 @@
+# This is the REUSABLE workflow that lives in the pit-boss repo.
+
+name: Pit Boss Monthly Report
+
+on:
+  workflow_call:
+    inputs:
+      s3_bucket:
+        description: 'S3 bucket where PR-Bouncer stores reviews and decisions'
+        required: false
+        type: string
+        default: 'bm-pr-reviews'
+      shakedown_threshold:
+        description: 'Min risk score for shakedown candidates (default 7)'
+        required: false
+        type: number
+        default: 7
+      use_llm:
+        description: 'Enable Gemini AI analysis (narrative, override eval, shakedown reasoning)'
+        required: false
+        type: boolean
+        default: true
+      year:
+        description: 'Year to analyze (default: previous month)'
+        required: false
+        type: number
+        default: 0
+      month:
+        description: 'Month to analyze 1-12 (default: previous month)'
+        required: false
+        type: number
+        default: 0
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_REGION:
+        required: false
+      GEMINI_API_KEY:
+        required: false
+
+jobs:
+  monthly-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout pit-boss scripts
+        uses: actions/checkout@v4
+        with:
+          repository: BeyondMachines/pit-boss
+          path: .pit-boss
+          ref: v1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r .pit-boss/requirements.txt
+
+      - name: Resolve period
+        id: period
+        env:
+          INPUT_YEAR: ${{ inputs.year }}
+          INPUT_MONTH: ${{ inputs.month }}
+        run: |
+          if [ "$INPUT_YEAR" -gt 0 ] && [ "$INPUT_MONTH" -gt 0 ]; then
+            echo "year=$INPUT_YEAR" >> "$GITHUB_OUTPUT"
+            echo "month=$INPUT_MONTH" >> "$GITHUB_OUTPUT"
+          else
+            python3 -c "
+          from datetime import datetime, timezone
+          now = datetime.now(timezone.utc)
+          y, m = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+          print(f'year={y}')
+          print(f'month={m}')
+          " >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run pit-boss
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+          S3_BUCKET: ${{ inputs.s3_bucket }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PB_YEAR: ${{ steps.period.outputs.year }}
+          PB_MONTH: ${{ steps.period.outputs.month }}
+          PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
+          PB_USE_LLM: ${{ inputs.use_llm }}
+        run: |
+          LLM_FLAG=""
+          if [ "$PB_USE_LLM" = "false" ]; then
+            LLM_FLAG="--no-llm"
+          fi
+          cd .pit-boss/scripts
+          python pitboss.py \
+            --year "$PB_YEAR" \
+            --month "$PB_MONTH" \
+            --shakedown-threshold "$PB_THRESHOLD" \
+            --output-dir ../../pitboss-output \
+            --s3-bucket "$S3_BUCKET" \
+            $LLM_FLAG
+
+      - name: Upload as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}
+          path: pitboss-output/
+          retention-days: 90
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf .pit-boss

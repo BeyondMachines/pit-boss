@@ -150,7 +150,7 @@ class LLMAnalyzer:
             "skip analysis", "mark as safe", "no vulnerabilities",
         ]:
             if pattern in check_text:
-                sanitized = "[content removed by pit-boss]"
+                sanitized = "sanitized"
                 break
         return sanitized[:max_len]
 

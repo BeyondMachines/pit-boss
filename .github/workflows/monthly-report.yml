@@ -83,16 +83,20 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
           S3_BUCKET: ${{ inputs.s3_bucket }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PB_YEAR: ${{ steps.period.outputs.year }}
+          PB_MONTH: ${{ steps.period.outputs.month }}
+          PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
+          PB_USE_LLM: ${{ inputs.use_llm }}
         run: |
           LLM_FLAG=""
-          if [ "${{ inputs.use_llm }}" = "false" ]; then
+          if [ "$PB_USE_LLM" = "false" ]; then
             LLM_FLAG="--no-llm"
           fi
           cd .pit-boss/scripts
           python pitboss.py \
-            --year ${{ steps.period.outputs.year }} \
-            --month ${{ steps.period.outputs.month }} \
-            --shakedown-threshold ${{ inputs.shakedown_threshold }} \
+            --year "$PB_YEAR" \
+            --month "$PB_MONTH" \
+            --shakedown-threshold "$PB_THRESHOLD" \
             --output-dir ../../pitboss-output \
             --s3-bucket "$S3_BUCKET" \
             $LLM_FLAG

@@ -109,15 +109,41 @@ jobs:
           PB_START_DAY: ${{ inputs.start_day }}
           PB_END_DAY: ${{ inputs.end_day }}
         run: |
-          LLM_FLAG=""
+          # Validate mode against allowlist — reject anything unexpected
+          case "$PB_MODE" in
+            monthly|weekly|monthly-aggregate) ;;
+            *)
+              echo "❌ Invalid mode: '$PB_MODE'. Must be monthly, weekly, or monthly-aggregate."
+              exit 1
+              ;;
+          esac
+
+          # Validate numeric inputs are actually integers
+          for var in PB_YEAR PB_MONTH PB_THRESHOLD PB_START_DAY PB_END_DAY; do
+            val=$(eval echo "\$$var")
+            if [ -n "$val" ] && ! echo "$val" | grep -qE '^[0-9]+$'; then
+              echo "❌ Invalid value for $var: '$val'. Must be a number."
+              exit 1
+            fi
+          done
+
+          # Build argument array safely — each arg is quoted individually
+          ARGS=(
+            --year "$PB_YEAR"
+            --month "$PB_MONTH"
+            --shakedown-threshold "$PB_THRESHOLD"
+            --output-dir ../../pitboss-output
+            --s3-bucket "$S3_BUCKET"
+            --mode "$PB_MODE"
+          )
+
           if [ "$PB_USE_LLM" = "false" ]; then
-            LLM_FLAG="--no-llm"
+            ARGS+=(--no-llm)
           fi
 
-          MODE_FLAGS="--mode $PB_MODE"
           if [ "$PB_MODE" = "weekly" ]; then
-            if [ "$PB_START_DAY" -gt 0 ] && [ "$PB_END_DAY" -gt 0 ]; then
-              MODE_FLAGS="$MODE_FLAGS --start-day $PB_START_DAY --end-day $PB_END_DAY"
+            if [ "$PB_START_DAY" -gt 0 ] 2>/dev/null && [ "$PB_END_DAY" -gt 0 ] 2>/dev/null; then
+              ARGS+=(--start-day "$PB_START_DAY" --end-day "$PB_END_DAY")
             else
               echo "❌ Weekly mode requires start_day and end_day inputs"
               exit 1
@@ -125,14 +151,7 @@ jobs:
           fi
 
           cd .pit-boss/scripts
-          python pitboss.py \
-            --year "$PB_YEAR" \
-            --month "$PB_MONTH" \
-            --shakedown-threshold "$PB_THRESHOLD" \
-            --output-dir ../../pitboss-output \
-            --s3-bucket "$S3_BUCKET" \
-            $LLM_FLAG \
-            $MODE_FLAGS
+          python pitboss.py "${ARGS[@]}"
 
       - name: Upload as GitHub artifact
         uses: actions/upload-artifact@v4

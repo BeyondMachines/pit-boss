@@ -1,6 +1,6 @@
 # This is the REUSABLE workflow that lives in the pit-boss repo.
 
-name: Pit Boss Monthly Report
+name: Pit Boss Report
 
 on:
   workflow_call:
@@ -30,6 +30,21 @@ on:
         required: false
         type: number
         default: 0
+      mode:
+        description: 'Run mode: monthly, weekly, or monthly-aggregate'
+        required: false
+        type: string
+        default: 'monthly'
+      start_day:
+        description: 'Start day for weekly mode (1-31)'
+        required: false
+        type: number
+        default: 0
+      end_day:
+        description: 'End day for weekly mode (1-31)'
+        required: false
+        type: number
+        default: 0
     secrets:
       AWS_ACCESS_KEY_ID:
         required: true
@@ -41,7 +56,7 @@ on:
         required: false
 
 jobs:
-  monthly-analysis:
+  analysis:
     runs-on: ubuntu-latest
 
     steps:
@@ -90,11 +105,25 @@ jobs:
           PB_MONTH: ${{ steps.period.outputs.month }}
           PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
           PB_USE_LLM: ${{ inputs.use_llm }}
+          PB_MODE: ${{ inputs.mode }}
+          PB_START_DAY: ${{ inputs.start_day }}
+          PB_END_DAY: ${{ inputs.end_day }}
         run: |
           LLM_FLAG=""
           if [ "$PB_USE_LLM" = "false" ]; then
             LLM_FLAG="--no-llm"
           fi
+
+          MODE_FLAGS="--mode $PB_MODE"
+          if [ "$PB_MODE" = "weekly" ]; then
+            if [ "$PB_START_DAY" -gt 0 ] && [ "$PB_END_DAY" -gt 0 ]; then
+              MODE_FLAGS="$MODE_FLAGS --start-day $PB_START_DAY --end-day $PB_END_DAY"
+            else
+              echo "❌ Weekly mode requires start_day and end_day inputs"
+              exit 1
+            fi
+          fi
+
           cd .pit-boss/scripts
           python pitboss.py \
             --year "$PB_YEAR" \
@@ -102,12 +131,13 @@ jobs:
             --shakedown-threshold "$PB_THRESHOLD" \
             --output-dir ../../pitboss-output \
             --s3-bucket "$S3_BUCKET" \
-            $LLM_FLAG
+            $LLM_FLAG \
+            $MODE_FLAGS
 
       - name: Upload as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}
+          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}-${{ inputs.mode }}
           path: pitboss-output/
           retention-days: 90
 

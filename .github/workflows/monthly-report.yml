@@ -120,7 +120,7 @@ jobs:
 
           # Validate numeric inputs are actually integers
           for var in PB_YEAR PB_MONTH PB_THRESHOLD PB_START_DAY PB_END_DAY; do
-            val=$(eval echo "\$$var")
+            val="${!var}"
             if [ -n "$val" ] && ! echo "$val" | grep -qE '^[0-9]+$'; then
               echo "❌ Invalid value for $var: '$val'. Must be a number."
               exit 1

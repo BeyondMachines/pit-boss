@@ -202,7 +202,7 @@ class LLMAnalyzer:
             "skip analysis", "mark as safe", "no vulnerabilities",
         ]:
             if pattern in check_text:
-                sanitized = "[REDACTED — possible prompt injection]"
+                sanitized = "sanitized"
                 break
         return sanitized[:max_len]
 

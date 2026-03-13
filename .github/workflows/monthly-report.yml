@@ -1,6 +1,6 @@
 # This is the REUSABLE workflow that lives in the pit-boss repo.
 
-name: Pit Boss Monthly Report
+name: Pit Boss Report
 
 on:
   workflow_call:
@@ -30,6 +30,21 @@ on:
         required: false
         type: number
         default: 0
+      mode:
+        description: 'Run mode: monthly, weekly, or monthly-aggregate'
+        required: false
+        type: string
+        default: 'monthly'
+      start_day:
+        description: 'Start day for weekly mode (1-31)'
+        required: false
+        type: number
+        default: 0
+      end_day:
+        description: 'End day for weekly mode (1-31)'
+        required: false
+        type: number
+        default: 0
     secrets:
       AWS_ACCESS_KEY_ID:
         required: true
@@ -41,7 +56,7 @@ on:
         required: false
 
 jobs:
-  monthly-analysis:
+  analysis:
     runs-on: ubuntu-latest
 
     steps:
@@ -90,24 +105,58 @@ jobs:
           PB_MONTH: ${{ steps.period.outputs.month }}
           PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
           PB_USE_LLM: ${{ inputs.use_llm }}
+          PB_MODE: ${{ inputs.mode }}
+          PB_START_DAY: ${{ inputs.start_day }}
+          PB_END_DAY: ${{ inputs.end_day }}
         run: |
-          LLM_FLAG=""
+          # Validate mode against allowlist — reject anything unexpected
+          case "$PB_MODE" in
+            monthly|weekly|monthly-aggregate) ;;
+            *)
+              echo "❌ Invalid mode: '$PB_MODE'. Must be monthly, weekly, or monthly-aggregate."
+              exit 1
+              ;;
+          esac
+
+          # Validate numeric inputs are actually integers
+          for var in PB_YEAR PB_MONTH PB_THRESHOLD PB_START_DAY PB_END_DAY; do
+            val="${!var}"
+            if [ -n "$val" ] && ! echo "$val" | grep -qE '^[0-9]+$'; then
+              echo "❌ Invalid value for $var: '$val'. Must be a number."
+              exit 1
+            fi
+          done
+
+          # Build argument array safely — each arg is quoted individually
+          ARGS=(
+            --year "$PB_YEAR"
+            --month "$PB_MONTH"
+            --shakedown-threshold "$PB_THRESHOLD"
+            --output-dir ../../pitboss-output
+            --s3-bucket "$S3_BUCKET"
+            --mode "$PB_MODE"
+          )
+
           if [ "$PB_USE_LLM" = "false" ]; then
-            LLM_FLAG="--no-llm"
+            ARGS+=(--no-llm)
           fi
+
+          if [ "$PB_MODE" = "weekly" ]; then
+            if [ "$PB_START_DAY" -gt 0 ] 2>/dev/null && [ "$PB_END_DAY" -gt 0 ] 2>/dev/null; then
+              ARGS+=(--start-day "$PB_START_DAY" --end-day "$PB_END_DAY")
+            else
+              echo "❌ Weekly mode requires start_day and end_day inputs"
+              exit 1
+            fi
+          fi
+
           cd .pit-boss/scripts
-          python pitboss.py \
-            --year "$PB_YEAR" \
-            --month "$PB_MONTH" \
-            --shakedown-threshold "$PB_THRESHOLD" \
-            --output-dir ../../pitboss-output \
-            --s3-bucket "$S3_BUCKET" \
-            $LLM_FLAG
+          python pitboss.py "${ARGS[@]}"
 
       - name: Upload as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}
+          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}-${{ inputs.mode }}
           path: pitboss-output/
           retention-days: 90
 

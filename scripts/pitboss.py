@@ -65,14 +65,9 @@ from shakedown_candidates import ShakedownCandidateBuilder
 
 def parse_args():
     p = argparse.ArgumentParser(description="pit-boss: PR-Bouncer analysis")
-    now = datetime.now(timezone.utc)
-    if now.month == 1:
-        def_year, def_month = now.year - 1, 12
-    else:
-        def_year, def_month = now.year, now.month - 1
 
-    p.add_argument("--year", type=int, default=int(os.environ.get("PB_YEAR", def_year)))
-    p.add_argument("--month", type=int, default=int(os.environ.get("PB_MONTH", def_month)))
+    p.add_argument("--year", type=int, default=int(os.environ.get("PB_YEAR", 0)))
+    p.add_argument("--month", type=int, default=int(os.environ.get("PB_MONTH", 0)))
     p.add_argument("--output-dir", type=str, default="./pitboss-output")
     p.add_argument("--shakedown-threshold", type=int,
                    default=int(os.environ.get("PB_THRESHOLD", 7)),
@@ -382,6 +377,19 @@ def _upload_to_s3_monthly(args, loader, label, report_md, candidates):
 
 def main() -> int:
     args = parse_args()
+
+    # Fill year/month defaults based on mode:
+    # weekly → current month (analysis is in-progress)
+    # monthly/monthly-aggregate → previous month (analysis is after month ends)
+    if args.year == 0 or args.month == 0:
+        now = datetime.now(timezone.utc)
+        if args.mode == "weekly":
+            args.year, args.month = now.year, now.month
+        elif now.month == 1:
+            args.year, args.month = now.year - 1, 12
+        else:
+            args.year, args.month = now.year, now.month - 1
+
     month_label = f"{args.year}-{args.month:02d}"
 
     print("=" * 60)

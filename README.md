@@ -133,8 +133,8 @@ Outputs land in `./pitboss-output/` (or your custom dir):
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--year` | Previous month's year | Year to analyze |
-| `--month` | Previous month | Month to analyze (1-12) |
+| `--year` | Current month (weekly) / previous month (monthly) | Year to analyze |
+| `--month` | Current month (weekly) / previous month (monthly) | Month to analyze (1-12) |
 | `--output-dir` | `./pitboss-output` | Where to write reports |
 | `--shakedown-threshold` | `7` | Min risk score for shakedown candidates |
 | `--s3-bucket` | `$S3_BUCKET` or `bm-pr-reviews` | S3 bucket to read from |
@@ -151,26 +151,34 @@ Outputs land in `./pitboss-output/` (or your custom dir):
 For orgs with high PR volume, a weekly cadence keeps each analysis pass small:
 
 ```
-Week 1:  pitboss.py --mode weekly --start-day 1 --end-day 7      → snapshot saved
-Week 2:  pitboss.py --mode weekly --start-day 8 --end-day 14     → snapshot saved
-Week 3:  pitboss.py --mode weekly --start-day 15 --end-day 21    → snapshot saved
-Week 4:  pitboss.py --mode weekly --start-day 22 --end-day 31    → snapshot saved
-EOM:     pitboss.py --mode monthly-aggregate                     → full monthly report
+Every Monday:  pitboss.py --mode weekly          → auto-computes previous Mon-Sun, snapshot saved
+2nd of month:  pitboss.py --mode monthly-aggregate → merges all snapshots, full monthly report
 ```
 
-Each weekly run produces its own report and saves a compact snapshot to S3 (under `pitboss-snapshots/YYYY-MM/`). The monthly-aggregate mode reads all snapshots for the month, deduplicates PRs that span multiple weeks, and produces the combined report.
+Each weekly run analyzes the previous Monday–Sunday, produces its own report, and saves a compact snapshot to S3 (under `pitboss-snapshots/YYYY-MM/`). The monthly-aggregate mode reads all snapshots for the month, deduplicates PRs that span multiple weeks, and produces the combined report.
+
+If a week crosses a month boundary (e.g., Mon Feb 24 – Sun Mar 2), the run uses the month of the Monday and caps the end day at the last day of that month. The first day or two of the new month are picked up by that month's first weekly run.
 
 Weekly reports are useful for standups. The monthly aggregate is for the formal security meeting.
 
+### Recommended Schedule
+
+| Run | When | Cron |
+|-----|------|------|
+| Weekly | Every Monday morning | `0 6 * * 1` |
+| Monthly | 2nd of each month | `0 6 2 * *` |
+
+The monthly run is on the 2nd (not the 1st) to ensure the last Monday's weekly snapshot has already been saved before aggregation.
+
 ### Example Caller Workflows
 
-**Weekly (runs every Monday):**
+**Weekly (runs every Monday, auto-calculates previous week):**
 ```yaml
 name: Weekly Security Summary
 
 on:
   schedule:
-    - cron: "0 8 * * 1"
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 jobs:
@@ -178,8 +186,6 @@ jobs:
     uses: BeyondMachines/pit-boss/.github/workflows/monthly-report.yml@v1
     with:
       mode: weekly
-      start_day: 0   # auto-computed: previous 7 days
-      end_day: 0
       use_llm: false  # save tokens for monthly
     secrets:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -187,13 +193,13 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION }}
 ```
 
-**Monthly (1st of each month):**
+**Monthly aggregate (2nd of each month):**
 ```yaml
 name: Monthly Security Report
 
 on:
   schedule:
-    - cron: "0 8 1 * *"
+    - cron: "0 6 2 * *"
   workflow_dispatch:
 
 jobs:
@@ -209,6 +215,8 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION }}
 ```
 
+You can also override the date range manually — pass `start_day` and `end_day` to analyze a specific window, and `year`/`month` if it differs from the current month.
+
 ---
 
 ## GitHub Action — Reusable Workflow
@@ -220,11 +228,11 @@ jobs:
 | `s3_bucket` | string | `bm-pr-reviews` | S3 bucket where PR-Bouncer stores data |
 | `shakedown_threshold` | number | `7` | Min risk score for shakedown candidates |
 | `use_llm` | boolean | `true` | Enable Gemini AI analysis |
-| `year` | number | previous month | Year to analyze |
-| `month` | number | previous month | Month to analyze (1-12) |
+| `year` | number | auto | Year to analyze (weekly: current year; monthly: previous month's year) |
+| `month` | number | auto | Month to analyze (weekly: current month; monthly: previous month) |
 | `mode` | string | `monthly` | `monthly`, `weekly`, or `monthly-aggregate` |
-| `start_day` | number | 0 | Start day for weekly mode |
-| `end_day` | number | 0 | End day for weekly mode |
+| `start_day` | number | auto | Start day for weekly mode — auto-computed as previous Monday if omitted |
+| `end_day` | number | auto | End day for weekly mode — auto-computed as previous Sunday if omitted (capped at month end) |
 
 ### Required Secrets
 

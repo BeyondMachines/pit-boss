@@ -2,6 +2,8 @@
 __pycache__/
 *.py[codz]
 *$py.class
+CLAUDE.md
+scripts/pitboss-output/*
 
 # C extensions
 *.so

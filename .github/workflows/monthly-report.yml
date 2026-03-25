@@ -78,21 +78,54 @@ jobs:
       - name: Resolve period
         id: period
         env:
+          INPUT_MODE: ${{ inputs.mode }}
           INPUT_YEAR: ${{ inputs.year }}
           INPUT_MONTH: ${{ inputs.month }}
+          INPUT_START_DAY: ${{ inputs.start_day }}
+          INPUT_END_DAY: ${{ inputs.end_day }}
         run: |
-          if [ "$INPUT_YEAR" -gt 0 ] && [ "$INPUT_MONTH" -gt 0 ]; then
-            echo "year=$INPUT_YEAR" >> "$GITHUB_OUTPUT"
-            echo "month=$INPUT_MONTH" >> "$GITHUB_OUTPUT"
-          else
-            python3 -c "
-          from datetime import datetime, timezone
+          python3 -c "
+          from datetime import datetime, timezone, timedelta
+          import calendar, os
+
+          mode = os.environ.get('INPUT_MODE', 'monthly')
+          input_year = int(os.environ.get('INPUT_YEAR', '0'))
+          input_month = int(os.environ.get('INPUT_MONTH', '0'))
+          input_start_day = int(os.environ.get('INPUT_START_DAY', '0'))
+          input_end_day = int(os.environ.get('INPUT_END_DAY', '0'))
+
           now = datetime.now(timezone.utc)
-          y, m = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
-          print(f'year={y}')
-          print(f'month={m}')
-          " >> "$GITHUB_OUTPUT"
-          fi
+
+          if mode == 'weekly':
+              if input_start_day > 0 and input_end_day > 0:
+                  year = input_year if input_year > 0 else now.year
+                  month = input_month if input_month > 0 else now.month
+                  start_day = input_start_day
+                  end_day = input_end_day
+              else:
+                  # Auto: previous Monday to Sunday (run this on Mondays)
+                  prev_monday = now - timedelta(days=7)
+                  prev_sunday = prev_monday + timedelta(days=6)
+                  year = prev_monday.year
+                  month = prev_monday.month
+                  start_day = prev_monday.day
+                  last_day = calendar.monthrange(year, month)[1]
+                  end_day = prev_sunday.day if prev_sunday.month == month else last_day
+          else:
+              if input_year > 0 and input_month > 0:
+                  year, month = input_year, input_month
+              elif now.month > 1:
+                  year, month = now.year, now.month - 1
+              else:
+                  year, month = now.year - 1, 12
+              start_day = 0
+              end_day = 0
+
+          print(f'year={year}')
+          print(f'month={month}')
+          print(f'start_day={start_day}')
+          print(f'end_day={end_day}')
+          " >> "\$GITHUB_OUTPUT"
 
       - name: Run pit-boss
         env:
@@ -106,8 +139,8 @@ jobs:
           PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
           PB_USE_LLM: ${{ inputs.use_llm }}
           PB_MODE: ${{ inputs.mode }}
-          PB_START_DAY: ${{ inputs.start_day }}
-          PB_END_DAY: ${{ inputs.end_day }}
+          PB_START_DAY: ${{ steps.period.outputs.start_day }}
+          PB_END_DAY: ${{ steps.period.outputs.end_day }}
         run: |
           # Validate mode against allowlist — reject anything unexpected
           case "$PB_MODE" in
@@ -142,12 +175,7 @@ jobs:
           fi
 
           if [ "$PB_MODE" = "weekly" ]; then
-            if [ "$PB_START_DAY" -gt 0 ] 2>/dev/null && [ "$PB_END_DAY" -gt 0 ] 2>/dev/null; then
-              ARGS+=(--start-day "$PB_START_DAY" --end-day "$PB_END_DAY")
-            else
-              echo "❌ Weekly mode requires start_day and end_day inputs"
-              exit 1
-            fi
+            ARGS+=(--start-day "$PB_START_DAY" --end-day "$PB_END_DAY")
           fi
 
           cd .pit-boss/scripts

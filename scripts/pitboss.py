@@ -66,11 +66,11 @@ from shakedown_candidates import ShakedownCandidateBuilder
 def parse_args():
     p = argparse.ArgumentParser(description="pit-boss: PR-Bouncer analysis")
 
-    p.add_argument("--year", type=int, default=int(os.environ.get("PB_YEAR", 0)))
-    p.add_argument("--month", type=int, default=int(os.environ.get("PB_MONTH", 0)))
+    p.add_argument("--year", type=int, default=int(os.environ.get("PB_YEAR") or 0))
+    p.add_argument("--month", type=int, default=int(os.environ.get("PB_MONTH") or 0))
     p.add_argument("--output-dir", type=str, default="./pitboss-output")
     p.add_argument("--shakedown-threshold", type=int,
-                   default=int(os.environ.get("PB_THRESHOLD", 7)),
+                   default=int(os.environ.get("PB_THRESHOLD") or 7),
                    help="Minimum risk score for shakedown candidates (default: 7)")
     p.add_argument("--s3-bucket", type=str,
                    default=os.environ.get("S3_BUCKET", "bm-pr-reviews"))

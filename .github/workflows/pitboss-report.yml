@@ -61,14 +61,14 @@ jobs:
 
     steps:
       - name: Checkout pit-boss scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: BeyondMachines/pit-boss
           path: .pit-boss
           ref: v1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -125,7 +125,7 @@ jobs:
           print(f'month={month}')
           print(f'start_day={start_day}')
           print(f'end_day={end_day}')
-          " >> "\$GITHUB_OUTPUT"
+          " >> "$GITHUB_OUTPUT"
 
       - name: Run pit-boss
         env:
@@ -182,7 +182,7 @@ jobs:
           python pitboss.py "${ARGS[@]}"
 
       - name: Upload as GitHub artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}-${{ inputs.mode }}
           path: pitboss-output/

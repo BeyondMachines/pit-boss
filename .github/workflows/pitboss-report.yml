@@ -84,74 +84,10 @@ jobs:
           INPUT_START_DAY: ${{ inputs.start_day }}
           INPUT_END_DAY: ${{ inputs.end_day }}
         run: |
-          python3 <<'EOF' >> "$GITHUB_OUTPUT"
-          from datetime import datetime, timezone, timedelta
-          import calendar, json, os
+          cd .pit-boss/scripts
+          python3 resolve_periods.py
 
-          mode = os.environ.get('INPUT_MODE', 'monthly')
-          input_year = int(os.environ.get('INPUT_YEAR', '0'))
-          input_month = int(os.environ.get('INPUT_MONTH', '0'))
-          input_start_day = int(os.environ.get('INPUT_START_DAY', '0'))
-          input_end_day = int(os.environ.get('INPUT_END_DAY', '0'))
-
-          now = datetime.now(timezone.utc)
-          # Each period: [year, month, start_day, end_day]
-          # For monthly mode, start_day and end_day are 0.
-          periods = []
-
-          if mode == 'weekly':
-              if input_start_day > 0 and input_end_day > 0:
-                  # Manual override — trust the user, single period
-                  year = input_year if input_year > 0 else now.year
-                  month = input_month if input_month > 0 else now.month
-                  periods.append([year, month, input_start_day, input_end_day])
-              else:
-                  # Auto: previous full Monday-Sunday week, regardless of which
-                  # weekday this runs on. now.weekday() returns 0 for Monday.
-                  days_since_monday = now.weekday()
-                  prev_monday = now - timedelta(days=days_since_monday + 7)
-                  prev_sunday = prev_monday + timedelta(days=6)
-
-                  if prev_monday.month == prev_sunday.month:
-                      # Clean same-month week — single period
-                      periods.append([
-                          prev_monday.year, prev_monday.month,
-                          prev_monday.day, prev_sunday.day,
-                      ])
-                  else:
-                      # Cross-month week — emit TWO periods so each snapshot
-                      # lands in its correct month folder. No reviews lost.
-                      last_day = calendar.monthrange(
-                          prev_monday.year, prev_monday.month
-                      )[1]
-                      periods.append([
-                          prev_monday.year, prev_monday.month,
-                          prev_monday.day, last_day,
-                      ])
-                      periods.append([
-                          prev_sunday.year, prev_sunday.month,
-                          1, prev_sunday.day,
-                      ])
-          else:
-              # Monthly / monthly-aggregate — unchanged
-              if input_year > 0 and input_month > 0:
-                  year, month = input_year, input_month
-              elif now.month > 1:
-                  year, month = now.year, now.month - 1
-              else:
-                  year, month = now.year - 1, 12
-              periods.append([year, month, 0, 0])
-
-          # Compact JSON on one line for safe shell consumption
-          print(f"periods={json.dumps(periods)}")
-          print(f"count={len(periods)}")
-          # First-period values for backward-compatible artifact naming
-          first = periods[0]
-          print(f"first_year={first[0]}")
-          print(f"first_month={first[1]}")
-          EOF
-
-      - name: Run pit-boss
+       - name: Run pit-boss
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -163,57 +99,18 @@ jobs:
           PB_USE_LLM: ${{ inputs.use_llm }}
           PB_MODE: ${{ inputs.mode }}
         run: |
-          # Validate mode against allowlist
+          set -e
+
           case "$PB_MODE" in
             monthly|weekly|monthly-aggregate) ;;
             *)
-              echo "❌ Invalid mode: '$PB_MODE'. Must be monthly, weekly, or monthly-aggregate."
+              echo "Invalid mode: $PB_MODE"
               exit 1
               ;;
           esac
 
-          # Validate threshold is numeric
-          if ! echo "$PB_THRESHOLD" | grep -qE '^[0-9]+$'; then
-            echo "❌ Invalid threshold: '$PB_THRESHOLD'. Must be a number."
-            exit 1
-          fi
-
-          # Iterate over all periods. For same-month weekly and monthly modes
-          # there is exactly one period. For cross-month weekly there are two.
           cd .pit-boss/scripts
-
-          echo "$PB_PERIODS" | python3 -c "
-          import json, sys
-          for p in json.load(sys.stdin):
-              # Validate each field is a non-negative integer
-              for v in p:
-                  if not isinstance(v, int) or v < 0:
-                      print(f'❌ Invalid period value: {v}', file=sys.stderr)
-                      sys.exit(1)
-              print(' '.join(str(x) for x in p))
-          " | while read -r year month start_day end_day; do
-            echo ""
-            echo "▶️  Running pit-boss for ${year}-${month} days ${start_day}-${end_day}"
-
-            ARGS=(
-              --year "$year"
-              --month "$month"
-              --shakedown-threshold "$PB_THRESHOLD"
-              --output-dir "../../pitboss-output"
-              --s3-bucket "$S3_BUCKET"
-              --mode "$PB_MODE"
-            )
-
-            if [ "$PB_USE_LLM" = "false" ]; then
-              ARGS+=(--no-llm)
-            fi
-
-            if [ "$PB_MODE" = "weekly" ]; then
-              ARGS+=(--start-day "$start_day" --end-day "$end_day")
-            fi
-
-            python pitboss.py "${ARGS[@]}"
-          done
+          python3 run_periods.py
 
       - name: Upload as GitHub artifact
         uses: actions/upload-artifact@v5

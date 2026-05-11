@@ -75,7 +75,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r .pit-boss/requirements.txt
 
-      - name: Resolve period
+      - name: Resolve periods
         id: period
         env:
           INPUT_MODE: ${{ inputs.mode }}
@@ -84,9 +84,9 @@ jobs:
           INPUT_START_DAY: ${{ inputs.start_day }}
           INPUT_END_DAY: ${{ inputs.end_day }}
         run: |
-          python3 -c "
+          python3 <<'EOF' >> "$GITHUB_OUTPUT"
           from datetime import datetime, timezone, timedelta
-          import calendar, os
+          import calendar, json, os
 
           mode = os.environ.get('INPUT_MODE', 'monthly')
           input_year = int(os.environ.get('INPUT_YEAR', '0'))
@@ -95,37 +95,61 @@ jobs:
           input_end_day = int(os.environ.get('INPUT_END_DAY', '0'))
 
           now = datetime.now(timezone.utc)
+          # Each period: [year, month, start_day, end_day]
+          # For monthly mode, start_day and end_day are 0.
+          periods = []
 
           if mode == 'weekly':
               if input_start_day > 0 and input_end_day > 0:
+                  # Manual override — trust the user, single period
                   year = input_year if input_year > 0 else now.year
                   month = input_month if input_month > 0 else now.month
-                  start_day = input_start_day
-                  end_day = input_end_day
+                  periods.append([year, month, input_start_day, input_end_day])
               else:
-                  # Auto: previous Monday to Sunday (run this on Mondays)
-                  prev_monday = now - timedelta(days=7)
+                  # Auto: previous full Monday-Sunday week, regardless of which
+                  # weekday this runs on. now.weekday() returns 0 for Monday.
+                  days_since_monday = now.weekday()
+                  prev_monday = now - timedelta(days=days_since_monday + 7)
                   prev_sunday = prev_monday + timedelta(days=6)
-                  year = prev_monday.year
-                  month = prev_monday.month
-                  start_day = prev_monday.day
-                  last_day = calendar.monthrange(year, month)[1]
-                  end_day = prev_sunday.day if prev_sunday.month == month else last_day
+
+                  if prev_monday.month == prev_sunday.month:
+                      # Clean same-month week — single period
+                      periods.append([
+                          prev_monday.year, prev_monday.month,
+                          prev_monday.day, prev_sunday.day,
+                      ])
+                  else:
+                      # Cross-month week — emit TWO periods so each snapshot
+                      # lands in its correct month folder. No reviews lost.
+                      last_day = calendar.monthrange(
+                          prev_monday.year, prev_monday.month
+                      )[1]
+                      periods.append([
+                          prev_monday.year, prev_monday.month,
+                          prev_monday.day, last_day,
+                      ])
+                      periods.append([
+                          prev_sunday.year, prev_sunday.month,
+                          1, prev_sunday.day,
+                      ])
           else:
+              # Monthly / monthly-aggregate — unchanged
               if input_year > 0 and input_month > 0:
                   year, month = input_year, input_month
               elif now.month > 1:
                   year, month = now.year, now.month - 1
               else:
                   year, month = now.year - 1, 12
-              start_day = 0
-              end_day = 0
+              periods.append([year, month, 0, 0])
 
-          print(f'year={year}')
-          print(f'month={month}')
-          print(f'start_day={start_day}')
-          print(f'end_day={end_day}')
-          " >> "$GITHUB_OUTPUT"
+          # Compact JSON on one line for safe shell consumption
+          print(f"periods={json.dumps(periods)}")
+          print(f"count={len(periods)}")
+          # First-period values for backward-compatible artifact naming
+          first = periods[0]
+          print(f"first_year={first[0]}")
+          print(f"first_month={first[1]}")
+          EOF
 
       - name: Run pit-boss
         env:
@@ -134,15 +158,12 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
           S3_BUCKET: ${{ inputs.s3_bucket }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PB_YEAR: ${{ steps.period.outputs.year }}
-          PB_MONTH: ${{ steps.period.outputs.month }}
+          PB_PERIODS: ${{ steps.period.outputs.periods }}
           PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
           PB_USE_LLM: ${{ inputs.use_llm }}
           PB_MODE: ${{ inputs.mode }}
-          PB_START_DAY: ${{ steps.period.outputs.start_day }}
-          PB_END_DAY: ${{ steps.period.outputs.end_day }}
         run: |
-          # Validate mode against allowlist — reject anything unexpected
+          # Validate mode against allowlist
           case "$PB_MODE" in
             monthly|weekly|monthly-aggregate) ;;
             *)
@@ -151,40 +172,53 @@ jobs:
               ;;
           esac
 
-          # Validate numeric inputs are actually integers
-          for var in PB_YEAR PB_MONTH PB_THRESHOLD PB_START_DAY PB_END_DAY; do
-            val="${!var}"
-            if [ -n "$val" ] && ! echo "$val" | grep -qE '^[0-9]+$'; then
-              echo "❌ Invalid value for $var: '$val'. Must be a number."
-              exit 1
-            fi
-          done
-
-          # Build argument array safely — each arg is quoted individually
-          ARGS=(
-            --year "$PB_YEAR"
-            --month "$PB_MONTH"
-            --shakedown-threshold "$PB_THRESHOLD"
-            --output-dir ../../pitboss-output
-            --s3-bucket "$S3_BUCKET"
-            --mode "$PB_MODE"
-          )
-
-          if [ "$PB_USE_LLM" = "false" ]; then
-            ARGS+=(--no-llm)
+          # Validate threshold is numeric
+          if ! echo "$PB_THRESHOLD" | grep -qE '^[0-9]+$'; then
+            echo "❌ Invalid threshold: '$PB_THRESHOLD'. Must be a number."
+            exit 1
           fi
 
-          if [ "$PB_MODE" = "weekly" ]; then
-            ARGS+=(--start-day "$PB_START_DAY" --end-day "$PB_END_DAY")
-          fi
-
+          # Iterate over all periods. For same-month weekly and monthly modes
+          # there is exactly one period. For cross-month weekly there are two.
           cd .pit-boss/scripts
-          python pitboss.py "${ARGS[@]}"
+
+          echo "$PB_PERIODS" | python3 -c "
+          import json, sys
+          for p in json.load(sys.stdin):
+              # Validate each field is a non-negative integer
+              for v in p:
+                  if not isinstance(v, int) or v < 0:
+                      print(f'❌ Invalid period value: {v}', file=sys.stderr)
+                      sys.exit(1)
+              print(' '.join(str(x) for x in p))
+          " | while read -r year month start_day end_day; do
+            echo ""
+            echo "▶️  Running pit-boss for ${year}-${month} days ${start_day}-${end_day}"
+
+            ARGS=(
+              --year "$year"
+              --month "$month"
+              --shakedown-threshold "$PB_THRESHOLD"
+              --output-dir "../../pitboss-output"
+              --s3-bucket "$S3_BUCKET"
+              --mode "$PB_MODE"
+            )
+
+            if [ "$PB_USE_LLM" = "false" ]; then
+              ARGS+=(--no-llm)
+            fi
+
+            if [ "$PB_MODE" = "weekly" ]; then
+              ARGS+=(--start-day "$start_day" --end-day "$end_day")
+            fi
+
+            python pitboss.py "${ARGS[@]}"
+          done
 
       - name: Upload as GitHub artifact
         uses: actions/upload-artifact@v5
         with:
-          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}-${{ inputs.mode }}
+          name: pitboss-report-${{ steps.period.outputs.first_year }}-${{ steps.period.outputs.first_month }}-${{ inputs.mode }}-${{ github.run_id }}
           path: pitboss-output/
           retention-days: 90
 

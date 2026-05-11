@@ -75,7 +75,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r .pit-boss/requirements.txt
 
-      - name: Resolve period
+      - name: Resolve periods
         id: period
         env:
           INPUT_MODE: ${{ inputs.mode }}
@@ -84,107 +84,38 @@ jobs:
           INPUT_START_DAY: ${{ inputs.start_day }}
           INPUT_END_DAY: ${{ inputs.end_day }}
         run: |
-          python3 -c "
-          from datetime import datetime, timezone, timedelta
-          import calendar, os
+          cd .pit-boss/scripts
+          python3 resolve_periods.py
 
-          mode = os.environ.get('INPUT_MODE', 'monthly')
-          input_year = int(os.environ.get('INPUT_YEAR', '0'))
-          input_month = int(os.environ.get('INPUT_MONTH', '0'))
-          input_start_day = int(os.environ.get('INPUT_START_DAY', '0'))
-          input_end_day = int(os.environ.get('INPUT_END_DAY', '0'))
-
-          now = datetime.now(timezone.utc)
-
-          if mode == 'weekly':
-              if input_start_day > 0 and input_end_day > 0:
-                  year = input_year if input_year > 0 else now.year
-                  month = input_month if input_month > 0 else now.month
-                  start_day = input_start_day
-                  end_day = input_end_day
-              else:
-                  # Auto: previous Monday to Sunday (run this on Mondays)
-                  prev_monday = now - timedelta(days=7)
-                  prev_sunday = prev_monday + timedelta(days=6)
-                  year = prev_monday.year
-                  month = prev_monday.month
-                  start_day = prev_monday.day
-                  last_day = calendar.monthrange(year, month)[1]
-                  end_day = prev_sunday.day if prev_sunday.month == month else last_day
-          else:
-              if input_year > 0 and input_month > 0:
-                  year, month = input_year, input_month
-              elif now.month > 1:
-                  year, month = now.year, now.month - 1
-              else:
-                  year, month = now.year - 1, 12
-              start_day = 0
-              end_day = 0
-
-          print(f'year={year}')
-          print(f'month={month}')
-          print(f'start_day={start_day}')
-          print(f'end_day={end_day}')
-          " >> "$GITHUB_OUTPUT"
-
-      - name: Run pit-boss
+       - name: Run pit-boss
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
           S3_BUCKET: ${{ inputs.s3_bucket }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PB_YEAR: ${{ steps.period.outputs.year }}
-          PB_MONTH: ${{ steps.period.outputs.month }}
+          PB_PERIODS: ${{ steps.period.outputs.periods }}
           PB_THRESHOLD: ${{ inputs.shakedown_threshold }}
           PB_USE_LLM: ${{ inputs.use_llm }}
           PB_MODE: ${{ inputs.mode }}
-          PB_START_DAY: ${{ steps.period.outputs.start_day }}
-          PB_END_DAY: ${{ steps.period.outputs.end_day }}
         run: |
-          # Validate mode against allowlist — reject anything unexpected
+          set -e
+
           case "$PB_MODE" in
             monthly|weekly|monthly-aggregate) ;;
             *)
-              echo "❌ Invalid mode: '$PB_MODE'. Must be monthly, weekly, or monthly-aggregate."
+              echo "Invalid mode: $PB_MODE"
               exit 1
               ;;
           esac
 
-          # Validate numeric inputs are actually integers
-          for var in PB_YEAR PB_MONTH PB_THRESHOLD PB_START_DAY PB_END_DAY; do
-            val="${!var}"
-            if [ -n "$val" ] && ! echo "$val" | grep -qE '^[0-9]+$'; then
-              echo "❌ Invalid value for $var: '$val'. Must be a number."
-              exit 1
-            fi
-          done
-
-          # Build argument array safely — each arg is quoted individually
-          ARGS=(
-            --year "$PB_YEAR"
-            --month "$PB_MONTH"
-            --shakedown-threshold "$PB_THRESHOLD"
-            --output-dir ../../pitboss-output
-            --s3-bucket "$S3_BUCKET"
-            --mode "$PB_MODE"
-          )
-
-          if [ "$PB_USE_LLM" = "false" ]; then
-            ARGS+=(--no-llm)
-          fi
-
-          if [ "$PB_MODE" = "weekly" ]; then
-            ARGS+=(--start-day "$PB_START_DAY" --end-day "$PB_END_DAY")
-          fi
-
           cd .pit-boss/scripts
-          python pitboss.py "${ARGS[@]}"
+          python3 run_periods.py
 
       - name: Upload as GitHub artifact
         uses: actions/upload-artifact@v5
         with:
-          name: pitboss-report-${{ steps.period.outputs.year }}-${{ steps.period.outputs.month }}-${{ inputs.mode }}
+          name: pitboss-report-${{ steps.period.outputs.first_year }}-${{ steps.period.outputs.first_month }}-${{ inputs.mode }}-${{ github.run_id }}
           path: pitboss-output/
           retention-days: 90
 
